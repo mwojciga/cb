@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -10,12 +9,8 @@ import (
 	"time"
 )
 
-type crypto struct {
-	Symbol string `json:"symbol"`
-	Time   int    `json:"time"`
-}
-
 var baseApiUrl string = "https://fapi.binance.com"
+var recvWindow int = 10000000
 
 var httpClient http.Client = http.Client{
 	Timeout: time.Second * 2,
@@ -37,21 +32,43 @@ func main() {
 	// https://binance-docs.github.io/apidocs/futures/en/#new-order-trade
 }
 
+// TODO: this will not work as we don't receive a JSON here but an array instead.
 func getPriceData(symbol string, interval string, limit int) {
 	// Example: https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=1d&limit=5
-	url := baseApiUrl + "/fapi/v1/klines?symbol=" + symbol + "&interval=" + interval + "&limit=" + strconv.Itoa(limit)
-	body := sendHttpRequest(url)
+	type crypto struct {
+		Symbol string `json:"symbol"`
+		//Price float32 `json:"price"`
+		Time int `json:"time"`
+	}
+	params := "symbol=" + symbol + "&interval=" + interval + "&limit=" + strconv.Itoa(limit)
+	url := baseApiUrl + "/fapi/v1/klines?" + params
+	body := sendHttpGetRequest(url, false)
 	crypto1 := crypto{}
 	jsonErr := json.Unmarshal(body, &crypto1)
 	if jsonErr != nil {
 		log.Fatal(jsonErr)
 	}
 
-	fmt.Println(crypto1.Symbol)
-	fmt.Println(crypto1.Time)
+	log.Print(crypto1.Symbol)
 }
 
-func sendHttpRequest(reqUrl string) (resBody []byte) {
+// TODO
+func getTime() {
+
+}
+
+// TODO
+func generateSignature(params string) string {
+	signature := ""
+	return signature
+}
+
+func sendHttpGetRequest(reqUrl string, signature bool) (resBody []byte) {
+	if signature {
+		sig := generateSignature()
+		reqUrl = reqUrl + "&signature=" + sig
+	}
+
 	req, err := http.NewRequest(http.MethodGet, reqUrl, nil)
 	if err != nil {
 		log.Fatal(err)
