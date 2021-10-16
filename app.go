@@ -6,41 +6,60 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 )
 
-type people struct {
+type crypto struct {
 	Symbol string `json:"symbol"`
 	Time   int    `json:"time"`
+}
+
+var baseApiUrl string = "https://fapi.binance.com"
+
+var httpClient http.Client = http.Client{
+	Timeout: time.Second * 2,
 }
 
 func main() {
 	// Check if there are any open trades. Continue if not.
 	// https://binance-docs.github.io/apidocs/futures/en/#position-information-v2-user_data
+
 	// Get kines data for an asset.
-	// https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=1d&limit=5
+	// https://binance-docs.github.io/apidocs/futures/en/#kline-candlestick-data
+	getPriceData("BTCUSDT", "1d", 5)
+
 	// Calculate EMAs: EMA50H, EMA100H, EMA200D.
+
 	// Cancel open orders, if any.
+
 	// Open a new order based on calculations.
 	// https://binance-docs.github.io/apidocs/futures/en/#new-order-trade
-
 }
 
-func test() {
-	var url string = "https://fapi.binance.com/fapi/v1/ticker/price?symbol=BTCUSDT" // the same as url := cos
-
-	spaceClient := http.Client{
-		Timeout: time.Second * 2,
+func getPriceData(symbol string, interval string, limit int) {
+	// Example: https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=1d&limit=5
+	url := baseApiUrl + "/fapi/v1/klines?symbol=" + symbol + "&interval=" + interval + "&limit=" + strconv.Itoa(limit)
+	body := sendHttpRequest(url)
+	crypto1 := crypto{}
+	jsonErr := json.Unmarshal(body, &crypto1)
+	if jsonErr != nil {
+		log.Fatal(jsonErr)
 	}
 
-	req, err := http.NewRequest(http.MethodGet, url, nil)
+	fmt.Println(crypto1.Symbol)
+	fmt.Println(crypto1.Time)
+}
+
+func sendHttpRequest(reqUrl string) (resBody []byte) {
+	req, err := http.NewRequest(http.MethodGet, reqUrl, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	req.Header.Set("User-Agent", "cb-prd-test")
 
-	res, getErr := spaceClient.Do(req)
+	res, getErr := httpClient.Do(req)
 	if getErr != nil {
 		log.Fatal(getErr)
 	}
@@ -54,13 +73,7 @@ func test() {
 		log.Fatal(readErr)
 	}
 
-	people1 := people{}
-	jsonErr := json.Unmarshal(body, &people1)
-	if jsonErr != nil {
-		log.Fatal(jsonErr)
-	}
+	log.Print("URL: " + reqUrl + ", status: " + res.Status)
 
-	fmt.Printf("HTTP: %s\n", res.Status)
-	fmt.Println(people1.Symbol)
-	fmt.Println(people1.Time)
+	return body
 }
