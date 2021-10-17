@@ -1,12 +1,17 @@
 package main
 
 import (
-	"encoding/json"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
+
+	"github.com/joho/godotenv"
 )
 
 var baseApiUrl string = "https://fapi.binance.com"
@@ -17,12 +22,19 @@ var httpClient http.Client = http.Client{
 }
 
 func main() {
-	// Check if there are any open trades. Continue if not.
+	// Load .env file with env vars.
+	err := godotenv.Load(".env")
+	if err != nil {
+		log.Fatal("Error while loading .env file.")
+	}
+
+	// Check if there are any open positions. Continue if not.
 	// https://binance-docs.github.io/apidocs/futures/en/#position-information-v2-user_data
+	getOpenPositions("BTCUSDT")
 
 	// Get kines data for an asset.
 	// https://binance-docs.github.io/apidocs/futures/en/#kline-candlestick-data
-	getPriceData("BTCUSDT", "1d", 5)
+	//getPriceData("BTCUSDT", "1d", 5)
 
 	// Calculate EMAs: EMA50H, EMA100H, EMA200D.
 
@@ -32,16 +44,25 @@ func main() {
 	// https://binance-docs.github.io/apidocs/futures/en/#new-order-trade
 }
 
+func getOpenPositions(symbol string) {
+	time := getTime()
+	apiEndpoint := "/fapi/v2/positionRisk"
+	params := "symbol=" + symbol + "&recvWindow=" + strconv.Itoa(recvWindow) + "&timestamp=" + strconv.Itoa(time)
+	sendHttpGetRequest(apiEndpoint, params, true, true)
+}
+
 // TODO: this will not work as we don't receive a JSON here but an array instead.
+/*
 func getPriceData(symbol string, interval string, limit int) {
+	apiEndpoint := "/fapi/v1/klines"
 	// Example: https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=1d&limit=5
 	type crypto struct {
 		Symbol string `json:"symbol"`
 		//Price float32 `json:"price"`
 		Time int `json:"time"`
 	}
-	params := "symbol=" + symbol + "&interval=" + interval + "&limit=" + strconv.Itoa(limit)
-	url := baseApiUrl + "/fapi/v1/klines?" + params
+	params := "?symbol=" + symbol + "&interval=" + interval + "&limit=" + strconv.Itoa(limit)
+	url := baseApiUrl + apiEndpoint + params
 	body := sendHttpGetRequest(url, false)
 	crypto1 := crypto{}
 	jsonErr := json.Unmarshal(body, &crypto1)
@@ -51,21 +72,29 @@ func getPriceData(symbol string, interval string, limit int) {
 
 	log.Print(crypto1.Symbol)
 }
+*/
 
-// TODO
-func getTime() {
-
+func getTime() int {
+	actualTime := int(time.Now().UnixMilli())
+	log.Printf("Time: %d", actualTime)
+	return actualTime
 }
 
-// TODO
 func generateSignature(params string) string {
-	signature := ""
+	bskey := os.Getenv("BSKEY")
+	// Create a new HMAC.
+	hmac := hmac.New(sha256.New, []byte(bskey))
+	hmac.Write([]byte(params))
+	// Get result and encode as hexadecimal string
+	signature := hex.EncodeToString(hmac.Sum(nil))
+	log.Print("Generated signature: " + signature)
 	return signature
 }
 
-func sendHttpGetRequest(reqUrl string, signature bool) (resBody []byte) {
+func sendHttpGetRequest(apiEndpoint string, params string, signature bool, apikey bool) (resBody []byte) {
+	reqUrl := baseApiUrl + apiEndpoint + "?" + params
 	if signature {
-		sig := generateSignature()
+		sig := generateSignature(params)
 		reqUrl = reqUrl + "&signature=" + sig
 	}
 
@@ -75,6 +104,11 @@ func sendHttpGetRequest(reqUrl string, signature bool) (resBody []byte) {
 	}
 
 	req.Header.Set("User-Agent", "cb-prd-test")
+
+	if apikey {
+		bakey := os.Getenv("BAKEY")
+		req.Header.Set("X-MBX-APIKEY", bakey)
+	}
 
 	res, getErr := httpClient.Do(req)
 	if getErr != nil {
@@ -91,6 +125,7 @@ func sendHttpGetRequest(reqUrl string, signature bool) (resBody []byte) {
 	}
 
 	log.Print("URL: " + reqUrl + ", status: " + res.Status)
+	log.Print(string(body))
 
 	return body
 }
