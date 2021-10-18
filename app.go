@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/cinar/indicator"
 	"github.com/joho/godotenv"
 )
 
@@ -35,7 +37,7 @@ func main() {
 
 	// Get kines data for an asset.
 	// https://binance-docs.github.io/apidocs/futures/en/#kline-candlestick-data
-	//getPriceData("BTCUSDT", "1d", 5)
+	getPriceData("BTCUSDT", "1h", 600)
 
 	// Calculate EMAs: EMA50H, EMA100H, EMA200D.
 
@@ -49,7 +51,19 @@ func main() {
 func getOpenPositions(symbol string) {
 	// Resp: array of JSON objects.
 	type PositionRisk struct {
-		PositionAmt string `json:"positionAmt"`
+		EntryPrice       string `json:"entryPrice"`
+		MarginType       string `json:"marginType"`
+		IsAutoAddMargin  string `json:"isAutoAddMargin"`
+		IsolatedMargin   string `json:"isolatedMargin"`
+		Leverage         string `json:"leverage"`
+		LiquidationPrice string `json:"liquidationPrice"`
+		MarkPrice        string `json:"markPrice"`
+		MaxNotionalValue string `json:"maxNotionalValue"`
+		PositionAmt      string `json:"positionAmt"`
+		Symbol           string `json:"symbol"`
+		UnRealizedProfit string `json:"unRealizedProfit"`
+		PositionSide     string `json:"positionSide"`
+		UpdateTime       int    `json:"updateTime"`
 	}
 
 	time := getTime()
@@ -71,29 +85,39 @@ func getOpenPositions(symbol string) {
 	log.Printf("[getOpenPositions] There are no opened positions for this asset. Continuing.")
 }
 
-// TODO: this will not work as we don't receive a JSON here but an array instead.
-/*
 func getPriceData(symbol string, interval string, limit int) {
-	// Resp: array of arrays ?
+	// Resp: JSON array of arrays
+	type PriceData []interface{}
+
 	apiEndpoint := "/fapi/v1/klines"
-	// Example: https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=1d&limit=5
-	type crypto struct {
-		Symbol string `json:"symbol"`
-		//Price float32 `json:"price"`
-		Time int `json:"time"`
-	}
-	params := "?symbol=" + symbol + "&interval=" + interval + "&limit=" + strconv.Itoa(limit)
-	url := baseApiUrl + apiEndpoint + params
-	body := sendHttpGetRequest(url, false)
-	crypto1 := crypto{}
-	jsonErr := json.Unmarshal(body, &crypto1)
+	params := "symbol=" + symbol + "&interval=" + interval + "&limit=" + strconv.Itoa(limit)
+	resBody := sendHttpGetRequest(apiEndpoint, params, true, true)
+
+	var priceData []PriceData
+
+	jsonErr := json.Unmarshal(resBody, &priceData)
 	if jsonErr != nil {
 		log.Fatal(jsonErr)
 	}
 
-	log.Print(crypto1.Symbol)
+	// Get 4th array element from each array and convert it to []float64.
+	closePrice := make([]float64, 0)
+	for _, row := range priceData {
+		price, err := strconv.ParseFloat(fmt.Sprintf("%v", row[4]), 64)
+		if err != nil {
+			log.Fatal(err)
+		}
+		closePrice = append(closePrice, price)
+	}
+
+	log.Printf("[getPriceData] Price: %v", closePrice[len(closePrice)-2])
+	ema50 := indicator.Ema(50, closePrice)
+	ema100 := indicator.Ema(100, closePrice)
+	ema200 := indicator.Ema(200, closePrice)
+	log.Printf("[getPriceData] EMA50: %0.2f", ema50[len(ema50)-2])
+	log.Printf("[getPriceData] EMA100: %0.2f", ema100[len(ema100)-2])
+	log.Printf("[getPriceData] EMA200: %0.2f", ema200[len(ema200)-2])
 }
-*/
 
 func getTime() int {
 	actualTime := int(time.Now().UnixMilli())
@@ -147,7 +171,7 @@ func sendHttpGetRequest(apiEndpoint string, params string, signature bool, apike
 
 	log.Printf("[sendHttpGetRequest] Req URL: %s", reqUrl)
 	log.Printf("[sendHttpGetRequest] Res code: %s", string(res.Status))
-	log.Printf("[sendHttpGetRequest] Res body: %s", string(body))
+	//log.Printf("[sendHttpGetRequest] Res body: %s", string(body))
 
 	return body
 }
