@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -39,21 +40,40 @@ func main() {
 	// Calculate EMAs: EMA50H, EMA100H, EMA200D.
 
 	// Cancel open orders, if any.
+	// https://binance-docs.github.io/apidocs/futures/en/#cancel-all-open-orders-trade
 
 	// Open a new order based on calculations.
 	// https://binance-docs.github.io/apidocs/futures/en/#new-order-trade
 }
 
 func getOpenPositions(symbol string) {
+	// Resp: array of JSON objects.
+	type PositionRisk struct {
+		PositionAmt string `json:"positionAmt"`
+	}
+
 	time := getTime()
 	apiEndpoint := "/fapi/v2/positionRisk"
 	params := "symbol=" + symbol + "&recvWindow=" + strconv.Itoa(recvWindow) + "&timestamp=" + strconv.Itoa(time)
-	sendHttpGetRequest(apiEndpoint, params, true, true)
+	resBody := sendHttpGetRequest(apiEndpoint, params, true, true)
+
+	var positions []PositionRisk
+
+	jsonErr := json.Unmarshal(resBody, &positions)
+	if jsonErr != nil {
+		log.Fatal(jsonErr)
+	}
+	// TODO: needs to be refactored if more then one symbol will be checked.
+	if positions[0].PositionAmt != "0.000" {
+		log.Print("There are already opened positions for this asset.")
+		os.Exit(1)
+	}
 }
 
 // TODO: this will not work as we don't receive a JSON here but an array instead.
 /*
 func getPriceData(symbol string, interval string, limit int) {
+	// Resp: array of arrays ?
 	apiEndpoint := "/fapi/v1/klines"
 	// Example: https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=1d&limit=5
 	type crypto struct {
