@@ -35,11 +35,9 @@ func main() {
 	// https://binance-docs.github.io/apidocs/futures/en/#position-information-v2-user_data
 	getOpenPositions("BTCUSDT")
 
-	// Get kines data for an asset.
+	// Get kines data for an asset and calculate EMAs: EMA50H, EMA100H, EMA200H.
 	// https://binance-docs.github.io/apidocs/futures/en/#kline-candlestick-data
 	getPriceData("BTCUSDT", "1h", 600)
-
-	// Calculate EMAs: EMA50H, EMA100H, EMA200D.
 
 	// Cancel open orders, if any.
 	// https://binance-docs.github.io/apidocs/futures/en/#cancel-all-open-orders-trade
@@ -69,7 +67,7 @@ func getOpenPositions(symbol string) {
 	time := getTime()
 	apiEndpoint := "/fapi/v2/positionRisk"
 	params := "symbol=" + symbol + "&recvWindow=" + strconv.Itoa(recvWindow) + "&timestamp=" + strconv.Itoa(time)
-	resBody := sendHttpGetRequest(apiEndpoint, params, true, true)
+	resBody := sendHttpRequest(http.MethodGet, apiEndpoint, params, true, true)
 
 	var positions []PositionRisk
 
@@ -85,13 +83,13 @@ func getOpenPositions(symbol string) {
 	log.Printf("[getOpenPositions] There are no opened positions for this asset. Continuing.")
 }
 
-func getPriceData(symbol string, interval string, limit int) {
+func getPriceData(symbol string, interval string, limit int) map[string]float64 {
 	// Resp: JSON array of arrays
 	type PriceData []interface{}
 
 	apiEndpoint := "/fapi/v1/klines"
 	params := "symbol=" + symbol + "&interval=" + interval + "&limit=" + strconv.Itoa(limit)
-	resBody := sendHttpGetRequest(apiEndpoint, params, true, true)
+	resBody := sendHttpRequest(http.MethodGet, apiEndpoint, params, true, true)
 
 	var priceData []PriceData
 
@@ -114,9 +112,16 @@ func getPriceData(symbol string, interval string, limit int) {
 	ema50 := indicator.Ema(50, closePrice)
 	ema100 := indicator.Ema(100, closePrice)
 	ema200 := indicator.Ema(200, closePrice)
-	log.Printf("[getPriceData] EMA50: %0.2f", ema50[len(ema50)-2])
-	log.Printf("[getPriceData] EMA100: %0.2f", ema100[len(ema100)-2])
-	log.Printf("[getPriceData] EMA200: %0.2f", ema200[len(ema200)-2])
+	emas := map[string]float64{
+		"ema50":  ema50[len(ema50)-2],
+		"ema100": ema100[len(ema100)-2],
+		"ema200": ema200[len(ema200)-2],
+	}
+	log.Printf("[getPriceData] EMA50: %0.2f", emas["ema50"])
+	log.Printf("[getPriceData] EMA100: %0.2f", emas["ema100"])
+	log.Printf("[getPriceData] EMA200: %0.2f", emas["ema200"])
+
+	return emas
 }
 
 func getTime() int {
@@ -136,16 +141,16 @@ func generateSignature(params string) string {
 	return signature
 }
 
-func sendHttpGetRequest(apiEndpoint string, params string, signature bool, apikey bool) (resBody []byte) {
+func sendHttpRequest(method string, apiEndpoint string, params string, signature bool, apikey bool) (resBody []byte) {
 	reqUrl := baseApiUrl + apiEndpoint + "?" + params
 	if signature {
 		sig := generateSignature(params)
 		reqUrl = reqUrl + "&signature=" + sig
 	}
 
-	req, err := http.NewRequest(http.MethodGet, reqUrl, nil)
+	req, err := http.NewRequest(method, reqUrl, nil)
 	if err != nil {
-		log.Fatalf("[sendHttpGetRequest] Err: %s", err)
+		log.Fatalf("[sendHttpRequest] Err: %s", err)
 	}
 
 	req.Header.Set("User-Agent", "cb-prd-test")
@@ -157,7 +162,7 @@ func sendHttpGetRequest(apiEndpoint string, params string, signature bool, apike
 
 	res, getErr := httpClient.Do(req)
 	if getErr != nil {
-		log.Fatalf("[sendHttpGetRequest] Err: %s", getErr)
+		log.Fatalf("[sendHttpRequest] Err: %s", getErr)
 	}
 
 	if res.Body != nil {
@@ -166,12 +171,12 @@ func sendHttpGetRequest(apiEndpoint string, params string, signature bool, apike
 
 	body, readErr := ioutil.ReadAll(res.Body)
 	if readErr != nil {
-		log.Fatalf("[sendHttpGetRequest] Err: %s", readErr)
+		log.Fatalf("[sendHttpRequest] Err: %s", readErr)
 	}
 
-	log.Printf("[sendHttpGetRequest] Req URL: %s", reqUrl)
-	log.Printf("[sendHttpGetRequest] Res code: %s", string(res.Status))
-	//log.Printf("[sendHttpGetRequest] Res body: %s", string(body))
+	log.Printf("[sendHttpRequest] Req URL: %s", reqUrl)
+	log.Printf("[sendHttpRequest] Res code: %s", string(res.Status))
+	//log.Printf("[sendHttpRequest] Res body: %s", string(body))
 
 	return body
 }
