@@ -65,9 +65,10 @@ func getOpenPositions(symbol string) {
 	}
 	// TODO: needs to be refactored if more then one symbol will be checked.
 	if positions[0].PositionAmt != "0.000" {
-		log.Print("There are already opened positions for this asset.")
+		log.Printf("[getOpenPositions] There are already opened positions for this asset.")
 		os.Exit(1)
 	}
+	log.Printf("[getOpenPositions] There are no opened positions for this asset. Continuing.")
 }
 
 // TODO: this will not work as we don't receive a JSON here but an array instead.
@@ -96,7 +97,7 @@ func getPriceData(symbol string, interval string, limit int) {
 
 func getTime() int {
 	actualTime := int(time.Now().UnixMilli())
-	log.Printf("Time: %d", actualTime)
+	log.Printf("[getTime] Time: %d", actualTime)
 	return actualTime
 }
 
@@ -107,7 +108,7 @@ func generateSignature(params string) string {
 	hmac.Write([]byte(params))
 	// Get result and encode as hexadecimal string
 	signature := hex.EncodeToString(hmac.Sum(nil))
-	log.Print("Generated signature: " + signature)
+	log.Printf("[generateSignature] Generated signature: %s", signature)
 	return signature
 }
 
@@ -120,7 +121,7 @@ func sendHttpGetRequest(apiEndpoint string, params string, signature bool, apike
 
 	req, err := http.NewRequest(http.MethodGet, reqUrl, nil)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("[sendHttpGetRequest] Err: %s", err)
 	}
 
 	req.Header.Set("User-Agent", "cb-prd-test")
@@ -132,7 +133,7 @@ func sendHttpGetRequest(apiEndpoint string, params string, signature bool, apike
 
 	res, getErr := httpClient.Do(req)
 	if getErr != nil {
-		log.Fatal(getErr)
+		log.Fatalf("[sendHttpGetRequest] Err: %s", getErr)
 	}
 
 	if res.Body != nil {
@@ -141,11 +142,12 @@ func sendHttpGetRequest(apiEndpoint string, params string, signature bool, apike
 
 	body, readErr := ioutil.ReadAll(res.Body)
 	if readErr != nil {
-		log.Fatal(readErr)
+		log.Fatalf("[sendHttpGetRequest] Err: %s", readErr)
 	}
 
-	log.Print("URL: " + reqUrl + ", status: " + res.Status)
-	log.Print(string(body))
+	log.Printf("[sendHttpGetRequest] Req URL: %s", reqUrl)
+	log.Printf("[sendHttpGetRequest] Res code: %s", string(res.Status))
+	log.Printf("[sendHttpGetRequest] Res body: %s", string(body))
 
 	return body
 }
