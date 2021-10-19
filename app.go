@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/cinar/indicator"
-	"github.com/joho/godotenv"
 )
 
 var baseApiUrl string = "https://fapi.binance.com"
@@ -25,12 +24,6 @@ var httpClient http.Client = http.Client{
 }
 
 func main() {
-	// Load .env file with env vars.
-	err := godotenv.Load(".env")
-	if err != nil {
-		log.Fatal("Error while loading .env file.")
-	}
-
 	// Check if there are any open positions. Continue if not.
 	// https://binance-docs.github.io/apidocs/futures/en/#position-information-v2-user_data
 	getOpenPositions("BTCUSDT")
@@ -168,7 +161,7 @@ func openOrders(symbol string, emas map[string]float64) {
 
 func getTime() int {
 	actualTime := int(time.Now().UnixMilli())
-	log.Printf("[getTime] Time: %d", actualTime)
+	//log.Printf("[getTime] Time: %d", actualTime)
 	return actualTime
 }
 
@@ -179,7 +172,7 @@ func generateSignature(params string) string {
 	hmac.Write([]byte(params))
 	// Get result and encode as hexadecimal string
 	signature := hex.EncodeToString(hmac.Sum(nil))
-	log.Printf("[generateSignature] Generated signature: %s", signature)
+	//log.Printf("[generateSignature] Generated signature: %s", signature)
 	return signature
 }
 

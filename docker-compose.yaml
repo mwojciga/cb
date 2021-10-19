@@ -1,0 +1,33 @@
+version: "3.6"
+services:
+  cb:
+    container_name: cb
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 50M
+        reservations:
+          cpus: '0.25'
+          memory: 20M
+      restart_policy:
+        condition: any
+        delay: 5s
+        max_attempts: 3
+        window: 120s
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: stop-first
+    env_file: ~/.cb/config
+    healthcheck:
+      disable: true
+    image: dockerhub.com/mwojciga/cb:${CB_TAG}
+    networks:
+      - bot-net
+    restart: always
+networks:
+  bot-net:
+    driver: bridge
+    name: bot-net
