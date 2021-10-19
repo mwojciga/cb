@@ -37,7 +37,7 @@ func main() {
 
 	// Get kines data for an asset and calculate EMAs: EMA50H, EMA100H, EMA200H.
 	// https://binance-docs.github.io/apidocs/futures/en/#kline-candlestick-data
-	getPriceData("BTCUSDT", "1h", 600)
+	emas := getPriceData("BTCUSDT", "1h", 600)
 
 	// Cancel open orders, if any.
 	// https://binance-docs.github.io/apidocs/futures/en/#cancel-all-open-orders-trade
@@ -45,7 +45,7 @@ func main() {
 
 	// Open a new order based on calculations.
 	// https://binance-docs.github.io/apidocs/futures/en/#new-order-trade
-	//openOrders("BTCUSDT", emas)
+	openOrders("BTCUSDT", emas)
 }
 
 func getOpenPositions(symbol string) {
@@ -80,6 +80,8 @@ func getOpenPositions(symbol string) {
 	// TODO: needs to be refactored if more then one symbol will be checked.
 	if positions[0].PositionAmt != "0.000" {
 		log.Printf("[getOpenPositions] There are already opened positions for this asset.")
+		// TODO: Check if TP/SL are placed.
+		// TODO: Place TP and SL orders (STOP_MARKET, TAKE_PROFIT_MARKET)
 		os.Exit(1)
 	}
 	log.Printf("[getOpenPositions] There are no opened positions for this asset. Continuing.")
@@ -133,6 +135,35 @@ func cancelOrders(symbol string) {
 	sendHttpRequest(http.MethodDelete, apiEndpoint, params, true, true)
 
 	log.Printf("[cancelOrders] Open orders cancelled.")
+}
+
+func openOrders(symbol string, emas map[string]float64) {
+	/*
+		Calculate where to open orders.
+
+		Options:
+		1. EMA50 > EMA100 > EMA200 - long
+		2. EMA200 > EMA100 > EMA50 - short // Not covered yet!
+		3. Others: not covered.
+	*/
+
+	var price float64
+	if emas["ema50"] > emas["ema100"] && emas["ema100"] > emas["ema200"] {
+		price = emas["ema100"]
+		log.Printf("[openOrders] Condition for placing a long was met.")
+	} else {
+		log.Printf("[openOrders] None of the conditions to place order were not met.")
+		os.Exit(1)
+	}
+
+	// Fixed for testing purposes only.
+	quantity := "0.05"
+
+	// Open orders.
+	time := getTime()
+	apiEndpoint := "/fapi/v1/order"
+	params := "symbol=" + symbol + "&recvWindow=" + strconv.Itoa(recvWindow) + "&timestamp=" + strconv.Itoa(time) + "&side=BUY" + "&positionSide=BOTH" + "&type=LIMIT" + "&timeInforce=GTC" + "&newClientOrderId=cbTestOrder" + "&price=" + fmt.Sprintf("%0.2f", price) + "&quantity=" + quantity
+	sendHttpRequest(http.MethodPost, apiEndpoint, params, true, true)
 }
 
 func getTime() int {
