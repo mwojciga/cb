@@ -7,4 +7,3 @@ RUN cd /go/src/cb && go build -o /bin/cb
 FROM scratch
 COPY --from=build /bin/cb /bin/cb
 ENTRYPOINT ["/bin/cb"]
-
