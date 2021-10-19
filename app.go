@@ -37,7 +37,7 @@ func main() {
 
 	// Get kines data for an asset and calculate EMAs: EMA50H, EMA100H, EMA200H.
 	// https://binance-docs.github.io/apidocs/futures/en/#kline-candlestick-data
-	emas := getPriceData("BTCUSDT", "1h", 600)
+	getPriceData("BTCUSDT", "1h", 600)
 
 	// Cancel open orders, if any.
 	// https://binance-docs.github.io/apidocs/futures/en/#cancel-all-open-orders-trade
@@ -128,9 +128,9 @@ func getPriceData(symbol string, interval string, limit int) map[string]float64 
 
 func cancelOrders(symbol string) {
 	time := getTime()
-	apiEndpoint := "/fapi/v1/allOpenOrders "
+	apiEndpoint := "/fapi/v1/allOpenOrders"
 	params := "symbol=" + symbol + "&recvWindow=" + strconv.Itoa(recvWindow) + "&timestamp=" + strconv.Itoa(time)
-	sendHttpRequest(http.MethodGet, apiEndpoint, params, true, true)
+	sendHttpRequest(http.MethodDelete, apiEndpoint, params, true, true)
 
 	log.Printf("[cancelOrders] Open orders cancelled.")
 }
