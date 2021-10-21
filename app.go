@@ -24,6 +24,14 @@ var httpClient http.Client = http.Client{
 	Timeout: time.Second * 2,
 }
 
+/* TODO
+1. Reformat logging, delete unneccessary.
+2. Replace getOpenPositions with account (same weight, more info).
+3. TP/SL
+4. Add other assets (maybe a DB with configs?)
+5. Dockerize, scale.
+*/
+
 func main() {
 	// Load .env file with env vars.
 	err := godotenv.Load(".env")
@@ -34,6 +42,8 @@ func main() {
 	// Check if there are any open positions. Continue if not.
 	// https://binance-docs.github.io/apidocs/futures/en/#position-information-v2-user_data
 	getOpenPositions("BTCUSDT")
+
+	getAccountData()
 
 	// Get kines data for an asset and calculate EMAs: EMA50H, EMA100H, EMA200H.
 	// https://binance-docs.github.io/apidocs/futures/en/#kline-candlestick-data
@@ -46,6 +56,71 @@ func main() {
 	// Open a new order based on calculations.
 	// https://binance-docs.github.io/apidocs/futures/en/#new-order-trade
 	openOrders("BTCUSDT", emas)
+}
+
+func getAccountData() {
+	type AccountData struct {
+		FeeTier                     int    `json:"feeTier"`
+		CanTrade                    bool   `json:"canTrade"`
+		CanDeposit                  bool   `json:"canDeposit"`
+		CanWithdraw                 bool   `json:"canWithdraw"`
+		UpdateTime                  int    `json:"updateTime"`
+		TotalInitialMargin          string `json:"totalInitialMargin"`
+		TotalMaintMargin            string `json:"totalMaintMargin"`
+		TotalWalletBalance          string `json:"totalWalletBalance"`
+		TotalUnrealizedProfit       string `json:"totalUnrealizedProfit"`
+		TotalMarginBalance          string `json:"totalMarginBalance"`
+		TotalPositionInitialMargin  string `json:"totalPositionInitialMargin"`
+		TotalOpenOrderInitialMargin string `json:"totalOpenOrderInitialMargin"`
+		TotalCrossWalletBalance     string `json:"totalCrossWalletBalance"`
+		TotalCrossUnPnl             string `json:"totalCrossUnPnl"`
+		AvailableBalance            string `json:"availableBalance"`
+		MaxWithdrawAmount           string `json:"maxWithdrawAmount"`
+		Assets                      []struct {
+			Asset                  string `json:"asset"`
+			WalletBalance          string `json:"walletBalance"`
+			UnrealizedProfit       string `json:"unrealizedProfit"`
+			MarginBalance          string `json:"marginBalance"`
+			MaintMargin            string `json:"maintMargin"`
+			InitialMargin          string `json:"initialMargin"`
+			PositionInitialMargin  string `json:"positionInitialMargin"`
+			OpenOrderInitialMargin string `json:"openOrderInitialMargin"`
+			CrossWalletBalance     string `json:"crossWalletBalance"`
+			CrossUnPnl             string `json:"crossUnPnl"`
+			AvailableBalance       string `json:"availableBalance"`
+			MaxWithdrawAmount      string `json:"maxWithdrawAmount"`
+			MarginAvailable        bool   `json:"marginAvailable"`
+			UpdateTime             int64  `json:"updateTime"`
+		} `json:"assets"`
+		Positions []struct {
+			Symbol                 string `json:"symbol"`
+			InitialMargin          string `json:"initialMargin"`
+			MaintMargin            string `json:"maintMargin"`
+			UnrealizedProfit       string `json:"unrealizedProfit"`
+			PositionInitialMargin  string `json:"positionInitialMargin"`
+			OpenOrderInitialMargin string `json:"openOrderInitialMargin"`
+			Leverage               string `json:"leverage"`
+			Isolated               bool   `json:"isolated"`
+			EntryPrice             string `json:"entryPrice"`
+			MaxNotional            string `json:"maxNotional"`
+			PositionSide           string `json:"positionSide"`
+			PositionAmt            string `json:"positionAmt"`
+			UpdateTime             int    `json:"updateTime"`
+		} `json:"positions"`
+	}
+
+	time := getTime()
+	apiEndpoint := "/fapi/v2/account"
+	params := "&recvWindow=" + strconv.Itoa(recvWindow) + "&timestamp=" + strconv.Itoa(time)
+	resBody := sendHttpRequest(http.MethodGet, apiEndpoint, params, true, true)
+
+	var account AccountData
+
+	jsonErr := json.Unmarshal(resBody, &account)
+	if jsonErr != nil {
+		log.Fatalf("[getAccountData] %s", jsonErr)
+	}
+	log.Printf("[getAccountData] %s", account.AvailableBalance)
 }
 
 func getOpenPositions(symbol string) {
@@ -73,9 +148,9 @@ func getOpenPositions(symbol string) {
 
 	var positions []PositionRisk
 
-	jsonErr := json.Unmarshal(resBody, &positions)
-	if jsonErr != nil {
-		log.Fatal(jsonErr)
+	err := json.Unmarshal(resBody, &positions)
+	if err != nil {
+		log.Fatalf("[getOpenPositions] %s", err)
 	}
 	// TODO: needs to be refactored if more then one symbol will be checked.
 	if positions[0].PositionAmt != "0.000" {
@@ -99,7 +174,7 @@ func getPriceData(symbol string, interval string, limit int) map[string]float64 
 
 	jsonErr := json.Unmarshal(resBody, &priceData)
 	if jsonErr != nil {
-		log.Fatal(jsonErr)
+		log.Fatalf("[getPriceData] %s", jsonErr)
 	}
 
 	// Get 4th array element from each array and convert it to []float64.
@@ -107,7 +182,7 @@ func getPriceData(symbol string, interval string, limit int) map[string]float64 
 	for _, row := range priceData {
 		price, err := strconv.ParseFloat(fmt.Sprintf("%v", row[4]), 64)
 		if err != nil {
-			log.Fatal(err)
+			log.Fatalf("[getPriceData] %s", err)
 		}
 		closePrice = append(closePrice, price)
 	}
@@ -152,7 +227,7 @@ func openOrders(symbol string, emas map[string]float64) {
 		price = emas["ema100"]
 		log.Printf("[openOrders] Condition for placing a long was met.")
 	} else {
-		log.Printf("[openOrders] None of the conditions to place order were not met.")
+		log.Printf("[openOrders] None of the conditions to place order were met.")
 		os.Exit(1)
 	}
 
@@ -168,7 +243,6 @@ func openOrders(symbol string, emas map[string]float64) {
 
 func getTime() int {
 	actualTime := int(time.Now().UnixMilli())
-	log.Printf("[getTime] Time: %d", actualTime)
 	return actualTime
 }
 
@@ -179,7 +253,6 @@ func generateSignature(params string) string {
 	hmac.Write([]byte(params))
 	// Get result and encode as hexadecimal string
 	signature := hex.EncodeToString(hmac.Sum(nil))
-	log.Printf("[generateSignature] Generated signature: %s", signature)
 	return signature
 }
 
@@ -192,7 +265,7 @@ func sendHttpRequest(method string, apiEndpoint string, params string, signature
 
 	req, err := http.NewRequest(method, reqUrl, nil)
 	if err != nil {
-		log.Fatalf("[sendHttpRequest] Err: %s", err)
+		log.Fatalf("[sendHttpRequest] %s", err)
 	}
 
 	req.Header.Set("User-Agent", "cb-prd-test")
@@ -204,7 +277,7 @@ func sendHttpRequest(method string, apiEndpoint string, params string, signature
 
 	res, getErr := httpClient.Do(req)
 	if getErr != nil {
-		log.Fatalf("[sendHttpRequest] Err: %s", getErr)
+		log.Fatalf("[sendHttpRequest] %s", getErr)
 	}
 
 	if res.Body != nil {
@@ -213,7 +286,7 @@ func sendHttpRequest(method string, apiEndpoint string, params string, signature
 
 	body, readErr := ioutil.ReadAll(res.Body)
 	if readErr != nil {
-		log.Fatalf("[sendHttpRequest] Err: %s", readErr)
+		log.Fatalf("[sendHttpRequest] %s", readErr)
 	}
 
 	log.Printf("[sendHttpRequest] Req URL: %s", reqUrl)
