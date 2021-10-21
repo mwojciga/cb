@@ -25,7 +25,6 @@ var httpClient http.Client = http.Client{
 }
 
 /* TODO
-1. Reformat logging, delete unneccessary.
 2. Replace getOpenPositions with account (same weight, more info).
 3. TP/SL
 4. Add other assets (maybe a DB with configs?)
