@@ -74,6 +74,17 @@ type AccountData struct {
 	} `json:"positions"`
 }
 
+type OrderData struct {
+	Symbol           string  `json:"symbol"`
+	Side             string  `json:"side"`
+	PositionSide     string  `json:"positionSide"`
+	Type             string  `json:"type"`
+	TimeInforce      string  `json:"timeInforce"`
+	NewClientOrderId string  `json:"newClientOrderId"`
+	Price            float64 `json:"price"`
+	Quantity         float64 `json:"quantity"`
+}
+
 /* TODO
 2. Replace getOpenPositions with account (same weight, more info).
 3. TP/SL
@@ -216,7 +227,10 @@ func cancelOrders(symbol string) {
 	log.Printf("[cancelOrders] Open orders cancelled.")
 }
 
-func calculateOrder(symbol string, asset map[string]float64, account AccountData) map[string]string {
+func calculateOrder(symbol string, asset map[string]float64, account AccountData) OrderData {
+	var order OrderData
+	order.Symbol = symbol
+
 	/*
 		Calculate where to open orders.
 
@@ -225,37 +239,47 @@ func calculateOrder(symbol string, asset map[string]float64, account AccountData
 		2. EMA200 > EMA100 > EMA50 - short // Not covered yet!
 		3. Others: not covered.
 	*/
-
-	order := make(map[string]string)
-	order["symbol"] = symbol
-
-	var price float64
 	if asset["ema50"] > asset["ema100"] && asset["ema100"] > asset["ema200"] {
-		price = asset["ema200"]
 		log.Printf("[openOrders] Condition for placing a long was met.")
-		// TODO Set the vars for a long here.
+		order.Price = asset["ema200"]
+		// Set the vars for a long here.
+		order.Side = "BUY"
+		order.PositionSide = "BOTH"
+		order.Type = "LIMIT"
+		order.TimeInforce = "GTC"
+		order.NewClientOrderId = "cbTestOrder"
+
 	} else {
 		log.Printf("[openOrders] None of the conditions to place order were met.")
 		os.Exit(1)
 	}
-	order["price"] = fmt.Sprintf("%0.2f", price)
 
 	// Calculate quantity.
 	balance, err := strconv.ParseFloat(account.AvailableBalance, 32)
 	if err != nil {
 		log.Fatalf("[openOrders] Can't calculate balance.")
 	}
-	quantity := balance / asset["currentPrice"]
-	order["quantity"] = fmt.Sprintf("%0.2f", quantity)
+	for _, position := range account.Positions {
+		if position.Symbol == "BTCUSDT" {
+			margin, err := strconv.ParseFloat(position.InitialMargin, 32)
+			if err != nil {
+				log.Fatalf("[openOrders] Can't calculate margin.")
+			}
+			order.Quantity = balance * margin / asset["currentPrice"]
+		} else {
+			log.Fatalf("[openOrders] Can't calculate margin.")
+			os.Exit(1)
+		}
+	}
 
 	return order
 }
 
-func openOrder(order map[string]string) {
+func openOrder(order OrderData) {
 	// Open orders.
 	time := getTime()
 	apiEndpoint := "/fapi/v1/order"
-	params := "symbol=" + order["symbol"] + "&recvWindow=" + strconv.Itoa(recvWindow) + "&timestamp=" + strconv.Itoa(time) + "&side=BUY" + "&positionSide=BOTH" + "&type=LIMIT" + "&timeInforce=GTC" + "&newClientOrderId=cbTestOrder" + "&price=" + order["price"] + "&quantity=" + order["quantity"]
+	params := fmt.Sprintf("symbol=%s&recvWindow=%d&timestamp=%d&side=%s&positionSide=%s&type=%s&timeInforce=%s&newClientOrderId=%s&price=%0.2f&quantity=%0.2f", order.Symbol, recvWindow, time, order.Side, order.PositionSide, order.Type, order.TimeInforce, order.NewClientOrderId, order.Price, order.Quantity)
 	sendHttpRequest(http.MethodPost, apiEndpoint, params, true, true)
 }
 
