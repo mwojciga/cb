@@ -24,6 +24,56 @@ var httpClient http.Client = http.Client{
 	Timeout: time.Second * 2,
 }
 
+type AccountData struct {
+	FeeTier                     int    `json:"feeTier"`
+	CanTrade                    bool   `json:"canTrade"`
+	CanDeposit                  bool   `json:"canDeposit"`
+	CanWithdraw                 bool   `json:"canWithdraw"`
+	UpdateTime                  int    `json:"updateTime"`
+	TotalInitialMargin          string `json:"totalInitialMargin"`
+	TotalMaintMargin            string `json:"totalMaintMargin"`
+	TotalWalletBalance          string `json:"totalWalletBalance"`
+	TotalUnrealizedProfit       string `json:"totalUnrealizedProfit"`
+	TotalMarginBalance          string `json:"totalMarginBalance"`
+	TotalPositionInitialMargin  string `json:"totalPositionInitialMargin"`
+	TotalOpenOrderInitialMargin string `json:"totalOpenOrderInitialMargin"`
+	TotalCrossWalletBalance     string `json:"totalCrossWalletBalance"`
+	TotalCrossUnPnl             string `json:"totalCrossUnPnl"`
+	AvailableBalance            string `json:"availableBalance"`
+	MaxWithdrawAmount           string `json:"maxWithdrawAmount"`
+	Assets                      []struct {
+		Asset                  string `json:"asset"`
+		WalletBalance          string `json:"walletBalance"`
+		UnrealizedProfit       string `json:"unrealizedProfit"`
+		MarginBalance          string `json:"marginBalance"`
+		MaintMargin            string `json:"maintMargin"`
+		InitialMargin          string `json:"initialMargin"`
+		PositionInitialMargin  string `json:"positionInitialMargin"`
+		OpenOrderInitialMargin string `json:"openOrderInitialMargin"`
+		CrossWalletBalance     string `json:"crossWalletBalance"`
+		CrossUnPnl             string `json:"crossUnPnl"`
+		AvailableBalance       string `json:"availableBalance"`
+		MaxWithdrawAmount      string `json:"maxWithdrawAmount"`
+		MarginAvailable        bool   `json:"marginAvailable"`
+		UpdateTime             int64  `json:"updateTime"`
+	} `json:"assets"`
+	Positions []struct {
+		Symbol                 string `json:"symbol"`
+		InitialMargin          string `json:"initialMargin"`
+		MaintMargin            string `json:"maintMargin"`
+		UnrealizedProfit       string `json:"unrealizedProfit"`
+		PositionInitialMargin  string `json:"positionInitialMargin"`
+		OpenOrderInitialMargin string `json:"openOrderInitialMargin"`
+		Leverage               string `json:"leverage"`
+		Isolated               bool   `json:"isolated"`
+		EntryPrice             string `json:"entryPrice"`
+		MaxNotional            string `json:"maxNotional"`
+		PositionSide           string `json:"positionSide"`
+		PositionAmt            string `json:"positionAmt"`
+		UpdateTime             int    `json:"updateTime"`
+	} `json:"positions"`
+}
+
 /* TODO
 2. Replace getOpenPositions with account (same weight, more info).
 3. TP/SL
@@ -42,11 +92,13 @@ func main() {
 	// https://binance-docs.github.io/apidocs/futures/en/#position-information-v2-user_data
 	getOpenPositions("BTCUSDT")
 
-	getAccountData()
+	account := getAccountData()
 
 	// Get kines data for an asset and calculate EMAs: EMA50H, EMA100H, EMA200H.
 	// https://binance-docs.github.io/apidocs/futures/en/#kline-candlestick-data
-	emas := getPriceData("BTCUSDT", "1h", 600)
+	asset := getAssetData("BTCUSDT", "1h", 600)
+
+	order := calculateOrder("BTCUSDT", asset, account)
 
 	// Cancel open orders, if any.
 	// https://binance-docs.github.io/apidocs/futures/en/#cancel-all-open-orders-trade
@@ -54,59 +106,10 @@ func main() {
 
 	// Open a new order based on calculations.
 	// https://binance-docs.github.io/apidocs/futures/en/#new-order-trade
-	openOrders("BTCUSDT", emas)
+	openOrder(order)
 }
 
-func getAccountData() {
-	type AccountData struct {
-		FeeTier                     int    `json:"feeTier"`
-		CanTrade                    bool   `json:"canTrade"`
-		CanDeposit                  bool   `json:"canDeposit"`
-		CanWithdraw                 bool   `json:"canWithdraw"`
-		UpdateTime                  int    `json:"updateTime"`
-		TotalInitialMargin          string `json:"totalInitialMargin"`
-		TotalMaintMargin            string `json:"totalMaintMargin"`
-		TotalWalletBalance          string `json:"totalWalletBalance"`
-		TotalUnrealizedProfit       string `json:"totalUnrealizedProfit"`
-		TotalMarginBalance          string `json:"totalMarginBalance"`
-		TotalPositionInitialMargin  string `json:"totalPositionInitialMargin"`
-		TotalOpenOrderInitialMargin string `json:"totalOpenOrderInitialMargin"`
-		TotalCrossWalletBalance     string `json:"totalCrossWalletBalance"`
-		TotalCrossUnPnl             string `json:"totalCrossUnPnl"`
-		AvailableBalance            string `json:"availableBalance"`
-		MaxWithdrawAmount           string `json:"maxWithdrawAmount"`
-		Assets                      []struct {
-			Asset                  string `json:"asset"`
-			WalletBalance          string `json:"walletBalance"`
-			UnrealizedProfit       string `json:"unrealizedProfit"`
-			MarginBalance          string `json:"marginBalance"`
-			MaintMargin            string `json:"maintMargin"`
-			InitialMargin          string `json:"initialMargin"`
-			PositionInitialMargin  string `json:"positionInitialMargin"`
-			OpenOrderInitialMargin string `json:"openOrderInitialMargin"`
-			CrossWalletBalance     string `json:"crossWalletBalance"`
-			CrossUnPnl             string `json:"crossUnPnl"`
-			AvailableBalance       string `json:"availableBalance"`
-			MaxWithdrawAmount      string `json:"maxWithdrawAmount"`
-			MarginAvailable        bool   `json:"marginAvailable"`
-			UpdateTime             int64  `json:"updateTime"`
-		} `json:"assets"`
-		Positions []struct {
-			Symbol                 string `json:"symbol"`
-			InitialMargin          string `json:"initialMargin"`
-			MaintMargin            string `json:"maintMargin"`
-			UnrealizedProfit       string `json:"unrealizedProfit"`
-			PositionInitialMargin  string `json:"positionInitialMargin"`
-			OpenOrderInitialMargin string `json:"openOrderInitialMargin"`
-			Leverage               string `json:"leverage"`
-			Isolated               bool   `json:"isolated"`
-			EntryPrice             string `json:"entryPrice"`
-			MaxNotional            string `json:"maxNotional"`
-			PositionSide           string `json:"positionSide"`
-			PositionAmt            string `json:"positionAmt"`
-			UpdateTime             int    `json:"updateTime"`
-		} `json:"positions"`
-	}
+func getAccountData() AccountData {
 
 	time := getTime()
 	apiEndpoint := "/fapi/v2/account"
@@ -119,7 +122,8 @@ func getAccountData() {
 	if jsonErr != nil {
 		log.Fatalf("[getAccountData] %s", jsonErr)
 	}
-	log.Printf("[getAccountData] %s", account.AvailableBalance)
+
+	return account
 }
 
 func getOpenPositions(symbol string) {
@@ -161,7 +165,7 @@ func getOpenPositions(symbol string) {
 	log.Printf("[getOpenPositions] There are no opened positions for this asset. Continuing.")
 }
 
-func getPriceData(symbol string, interval string, limit int) map[string]float64 {
+func getAssetData(symbol string, interval string, limit int) map[string]float64 {
 	// Resp: JSON array of arrays
 	type PriceData []interface{}
 
@@ -173,7 +177,7 @@ func getPriceData(symbol string, interval string, limit int) map[string]float64 
 
 	jsonErr := json.Unmarshal(resBody, &priceData)
 	if jsonErr != nil {
-		log.Fatalf("[getPriceData] %s", jsonErr)
+		log.Fatalf("[getAssetData] %s", jsonErr)
 	}
 
 	// Get 4th array element from each array and convert it to []float64.
@@ -181,25 +185,26 @@ func getPriceData(symbol string, interval string, limit int) map[string]float64 
 	for _, row := range priceData {
 		price, err := strconv.ParseFloat(fmt.Sprintf("%v", row[4]), 64)
 		if err != nil {
-			log.Fatalf("[getPriceData] %s", err)
+			log.Fatalf("[getAssetData] %s", err)
 		}
 		closePrice = append(closePrice, price)
 	}
 
-	log.Printf("[getPriceData] Price: %v", closePrice[len(closePrice)-2])
 	ema50 := indicator.Ema(50, closePrice)
 	ema100 := indicator.Ema(100, closePrice)
 	ema200 := indicator.Ema(200, closePrice)
-	emas := map[string]float64{
-		"ema50":  ema50[len(ema50)-2],
-		"ema100": ema100[len(ema100)-2],
-		"ema200": ema200[len(ema200)-2],
+	asset := map[string]float64{
+		"currentPrice": closePrice[len(closePrice)-2],
+		"ema50":        ema50[len(ema50)-2],
+		"ema100":       ema100[len(ema100)-2],
+		"ema200":       ema200[len(ema200)-2],
 	}
-	log.Printf("[getPriceData] EMA50: %0.2f", emas["ema50"])
-	log.Printf("[getPriceData] EMA100: %0.2f", emas["ema100"])
-	log.Printf("[getPriceData] EMA200: %0.2f", emas["ema200"])
+	log.Printf("[getAssetData] Current price: %0.2f", asset["currentPrice"])
+	log.Printf("[getAssetData] EMA50: %0.2f", asset["ema50"])
+	log.Printf("[getAssetData] EMA100: %0.2f", asset["ema100"])
+	log.Printf("[getAssetData] EMA200: %0.2f", asset["ema200"])
 
-	return emas
+	return asset
 }
 
 func cancelOrders(symbol string) {
@@ -211,7 +216,7 @@ func cancelOrders(symbol string) {
 	log.Printf("[cancelOrders] Open orders cancelled.")
 }
 
-func openOrders(symbol string, emas map[string]float64) {
+func calculateOrder(symbol string, asset map[string]float64, account AccountData) map[string]string {
 	/*
 		Calculate where to open orders.
 
@@ -221,22 +226,36 @@ func openOrders(symbol string, emas map[string]float64) {
 		3. Others: not covered.
 	*/
 
+	order := make(map[string]string)
+	order["symbol"] = symbol
+
 	var price float64
-	if emas["ema50"] > emas["ema100"] && emas["ema100"] > emas["ema200"] {
-		price = emas["ema100"]
+	if asset["ema50"] > asset["ema100"] && asset["ema100"] > asset["ema200"] {
+		price = asset["ema200"]
 		log.Printf("[openOrders] Condition for placing a long was met.")
+		// TODO Set the vars for a long here.
 	} else {
 		log.Printf("[openOrders] None of the conditions to place order were met.")
 		os.Exit(1)
 	}
+	order["price"] = fmt.Sprintf("%0.2f", price)
 
-	// Fixed for testing purposes only.
-	quantity := "0.05"
+	// Calculate quantity.
+	balance, err := strconv.ParseFloat(account.AvailableBalance, 32)
+	if err != nil {
+		log.Fatalf("[openOrders] Can't calculate balance.")
+	}
+	quantity := balance / asset["currentPrice"]
+	order["quantity"] = fmt.Sprintf("%0.2f", quantity)
 
+	return order
+}
+
+func openOrder(order map[string]string) {
 	// Open orders.
 	time := getTime()
 	apiEndpoint := "/fapi/v1/order"
-	params := "symbol=" + symbol + "&recvWindow=" + strconv.Itoa(recvWindow) + "&timestamp=" + strconv.Itoa(time) + "&side=BUY" + "&positionSide=BOTH" + "&type=LIMIT" + "&timeInforce=GTC" + "&newClientOrderId=cbTestOrder" + "&price=" + fmt.Sprintf("%0.2f", price) + "&quantity=" + quantity
+	params := "symbol=" + order["symbol"] + "&recvWindow=" + strconv.Itoa(recvWindow) + "&timestamp=" + strconv.Itoa(time) + "&side=BUY" + "&positionSide=BOTH" + "&type=LIMIT" + "&timeInforce=GTC" + "&newClientOrderId=cbTestOrder" + "&price=" + order["price"] + "&quantity=" + order["quantity"]
 	sendHttpRequest(http.MethodPost, apiEndpoint, params, true, true)
 }
 
