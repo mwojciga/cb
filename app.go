@@ -84,6 +84,7 @@ type NewOrderData struct {
 	Price            float64 `json:"price"`
 	StopPrice        float64 `json:"stopPrice"`
 	Quantity         float64 `json:"quantity"`
+	ClosePosition    string  `json:"closePosition"`
 }
 
 type OrderData struct {
@@ -113,7 +114,6 @@ type OrderData struct {
 }
 
 /* TODO
-3. TP/SL
 4. Add other assets (maybe a DB with configs?)
 5. Dockerize, scale.
 */
@@ -133,13 +133,12 @@ func main() {
 
 	// Get kines data for an asset and calculate EMAs: EMA50H, EMA100H, EMA200H.
 	// https://binance-docs.github.io/apidocs/futures/en/#kline-candlestick-data
-	asset := getAssetData("BTCUSDT", "1h", 600)
+	asset := getAssetData("BTCUSDT", os.Getenv("INTERVAL"), 600)
 
 	newOrder := calculateOrder("BTCUSDT", asset, account)
 
 	// Cancel open orders, if any.
 	// https://binance-docs.github.io/apidocs/futures/en/#cancel-all-open-orders-trade
-	cancelOrders("BTCUSDT")
 
 	// Open a new order based on calculations.
 	// https://binance-docs.github.io/apidocs/futures/en/#new-order-trade
@@ -188,7 +187,7 @@ func checkOpenPositions(symbol string, account AccountData) {
 			}
 			if positionAmt != 0 {
 				log.Printf("[checkOpenPositions] There are already opened positions for %s asset.", symbol)
-				// TODO: Check if TP/SL are placed.
+				// Check if TP/SL are placed.
 				orders := getOpenOrders(symbol)
 				if len(orders) != 0 {
 					for _, order := range orders {
@@ -202,21 +201,44 @@ func checkOpenPositions(symbol string, account AccountData) {
 					if err != nil {
 						log.Fatalf("[checkOpenPositions] Can't parse EntryPrice.")
 					}
-					// Common values for TP and SL.
 					var newOrder NewOrderData
-					newOrder.Quantity = positionAmt
-					newOrder.Side = "SELL"
+					// Check if position is a long or short.
+					// LONG: SELL, SHORT: BUY
+					if positionAmt < 0 {
+						newOrder.Side = "BUY"
+					} else if positionAmt > 0 {
+						newOrder.Side = "SELL"
+					}
+					// Common values for TP and SL.
+					//newOrder.Quantity = math.Abs(positionAmt)
 					newOrder.PositionSide = "BOTH"
 					newOrder.TimeInforce = "GTC"
 					newOrder.Symbol = symbol
+					newOrder.ClosePosition = "true"
 
 					// SL
-					newOrder.StopPrice = 0.98 * entryPrice // 2% for SL.
+					sl, err := strconv.ParseFloat(os.Getenv("SL"), 32)
+					if err != nil {
+						log.Fatalf("[checkOpenPositions] Can't parse SL size.")
+					}
+					if positionAmt < 0 {
+						newOrder.StopPrice = (1 + sl) * entryPrice
+					} else if positionAmt > 0 {
+						newOrder.StopPrice = (1 - sl) * entryPrice
+					}
 					newOrder.Type = "STOP_MARKET"
 					log.Printf("[checkOpenPositions] Opening a SL at %0.2f", newOrder.StopPrice)
 					openOrder(newOrder, true)
 					// TP
-					newOrder.StopPrice = 1.02 * entryPrice // 2% for TP.
+					tp, err := strconv.ParseFloat(os.Getenv("TP"), 32)
+					if err != nil {
+						log.Fatalf("[checkOpenPositions] Can't parse TP size.")
+					}
+					if positionAmt < 0 {
+						newOrder.StopPrice = (1 - tp) * entryPrice
+					} else if positionAmt > 0 {
+						newOrder.StopPrice = (1 + tp) * entryPrice
+					}
 					newOrder.Type = "TAKE_PROFIT_MARKET"
 					log.Printf("[checkOpenPositions] Opening a TP at %0.2f", newOrder.StopPrice)
 					openOrder(newOrder, true)
@@ -228,6 +250,8 @@ func checkOpenPositions(symbol string, account AccountData) {
 		// TODO: If BTCUSDT is not found, it will continue anyways :(
 	}
 	log.Printf("[checkOpenPositions] There are no opened positions for %s asset. Continuing.", symbol)
+	// Cancel any opened orders.
+	cancelOrders("BTCUSDT")
 }
 
 func getAssetData(symbol string, interval string, limit int) map[string]float64 {
@@ -256,16 +280,19 @@ func getAssetData(symbol string, interval string, limit int) map[string]float64 
 	}
 
 	ema50 := indicator.Ema(50, closePrice)
+	ema60 := indicator.Ema(60, closePrice)
 	ema100 := indicator.Ema(100, closePrice)
 	ema200 := indicator.Ema(200, closePrice)
 	asset := map[string]float64{
-		"currentPrice": closePrice[len(closePrice)-2],
-		"ema50":        ema50[len(ema50)-2],
-		"ema100":       ema100[len(ema100)-2],
-		"ema200":       ema200[len(ema200)-2],
+		"currentPrice": closePrice[len(closePrice)-1],
+		"ema50":        ema50[len(ema50)-1],
+		"ema60":        ema60[len(ema60)-1],
+		"ema100":       ema100[len(ema100)-1],
+		"ema200":       ema200[len(ema200)-1],
 	}
 	log.Printf("[getAssetData] Current price: %0.2f", asset["currentPrice"])
 	log.Printf("[getAssetData] EMA50: %0.2f", asset["ema50"])
+	log.Printf("[getAssetData] EMA60: %0.2f", asset["ema60"])
 	log.Printf("[getAssetData] EMA100: %0.2f", asset["ema100"])
 	log.Printf("[getAssetData] EMA200: %0.2f", asset["ema200"])
 
@@ -289,26 +316,35 @@ func calculateOrder(symbol string, asset map[string]float64, account AccountData
 		Calculate where to open orders.
 
 		Options:
-		1. EMA50 > EMA100 > EMA200 - long
-		2. EMA200 > EMA100 > EMA50 - short // Not covered yet!
+		1. EMA50 > EMA100 > EMA200 and currentPrice > EMA chosen - long
+		2. EMA200 > EMA100 > EMA50 and currentPrice < EMA chosen - short
 		3. Others: not covered.
 	*/
-	if asset["ema50"] > asset["ema100"] && asset["ema100"] > asset["ema200"] {
+
+	// Condition for placing a long.
+	mode := os.Getenv("MODE")
+
+	// Common for both long and short.
+	newOrder.PositionSide = "BOTH"
+	newOrder.Type = "LIMIT"
+	newOrder.TimeInforce = "GTC"
+	if asset["currentPrice"] > asset[mode] && asset["ema50"] > asset["ema60"] && asset["ema60"] > asset["ema100"] && asset["ema100"] > asset["ema200"] {
 		log.Printf("[calculateOrder] Condition for placing a long was met.")
-		newOrder.Price = asset["ema200"]
+		newOrder.Price = asset[mode]
 		// Set the vars for a long here.
 		newOrder.Side = "BUY"
-		newOrder.PositionSide = "BOTH"
-		newOrder.Type = "LIMIT"
-		newOrder.TimeInforce = "GTC"
-
+	} else if asset["currentPrice"] < asset[mode] && asset["ema50"] < asset["ema60"] && asset["ema60"] < asset["ema100"] && asset["ema100"] < asset["ema200"] {
+		log.Printf("[calculateOrder] Condition for placing a short was met.")
+		newOrder.Price = asset[mode]
+		// Set the vars for a short here.
+		newOrder.Side = "SELL"
 	} else {
 		log.Printf("[calculateOrder] None of the conditions to place order were met.")
 		os.Exit(1)
 	}
 
 	// Calculate quantity.
-	balance, err := strconv.ParseFloat(account.AvailableBalance, 32)
+	balance, err := strconv.ParseFloat(account.TotalMarginBalance, 32)
 	if err != nil {
 		log.Fatalf("[calculateOrder] Can't calculate balance.")
 	}
@@ -318,7 +354,11 @@ func calculateOrder(symbol string, asset map[string]float64, account AccountData
 			if err != nil {
 				log.Fatalf("[calculateOrder] Can't calculate margin.")
 			}
-			newOrder.Quantity = balance * leverage / asset["currentPrice"]
+			quantity, err := strconv.ParseFloat(os.Getenv("QTY"), 32)
+			if err != nil {
+				log.Fatalf("[calculateOrder] Can't calculate balance quantity.")
+			}
+			newOrder.Quantity = balance * leverage / asset["currentPrice"] * quantity
 		}
 	}
 
@@ -331,7 +371,7 @@ func openOrder(newOrder NewOrderData, tpsl bool) {
 	apiEndpoint := "/fapi/v1/order"
 	var params string
 	if tpsl {
-		params = fmt.Sprintf("symbol=%s&recvWindow=%d&timestamp=%d&side=%s&positionSide=%s&type=%s&timeInforce=%s&stopPrice=%0.2f&quantity=%0.3f", newOrder.Symbol, recvWindow, time, newOrder.Side, newOrder.PositionSide, newOrder.Type, newOrder.TimeInforce, newOrder.StopPrice, newOrder.Quantity)
+		params = fmt.Sprintf("symbol=%s&recvWindow=%d&timestamp=%d&side=%s&positionSide=%s&type=%s&timeInforce=%s&stopPrice=%0.2f&closePosition=%s", newOrder.Symbol, recvWindow, time, newOrder.Side, newOrder.PositionSide, newOrder.Type, newOrder.TimeInforce, newOrder.StopPrice, newOrder.ClosePosition)
 	} else {
 		params = fmt.Sprintf("symbol=%s&recvWindow=%d&timestamp=%d&side=%s&positionSide=%s&type=%s&timeInforce=%s&price=%0.2f&quantity=%0.3f", newOrder.Symbol, recvWindow, time, newOrder.Side, newOrder.PositionSide, newOrder.Type, newOrder.TimeInforce, newOrder.Price, newOrder.Quantity)
 	}
