@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cinar/indicator"
@@ -19,6 +20,7 @@ import (
 
 var baseApiUrl string = "https://fapi.binance.com"
 var recvWindow int = 10000000
+var order_mode, order_interval, order_sl, order_tp, order_qty string
 
 var httpClient http.Client = http.Client{
 	Timeout: time.Second * 2,
@@ -119,29 +121,33 @@ type OrderData struct {
 */
 
 func main() {
+	log.Printf("[main] Starting CB.")
 	// Load .env file with env vars.
 	err := godotenv.Load(".env")
 	if err != nil {
 		log.Fatal("Error while loading .env file.")
 	}
+	// Get configuration from env files to put it in the logs.
+	order_mode = os.Getenv("MODE")
+	order_interval = os.Getenv("INTERVAL")
+	order_sl = os.Getenv("SL")
+	order_tp = os.Getenv("TP")
+	order_qty = os.Getenv("QTY")
+	log.Printf("[main] Conf: mode %s, interval %s, sl %s, tp %s, qty: %s", order_mode, order_interval, order_sl, order_tp, order_qty)
 
+	// Get data about the account and any opened positions.
 	account := getAccountData()
 
 	// Check if there are any open positions. Continue if not.
-	// https://binance-docs.github.io/apidocs/futures/en/#position-information-v2-user_data
 	checkOpenPositions("BTCUSDT", account)
 
-	// Get kines data for an asset and calculate EMAs: EMA50H, EMA100H, EMA200H.
-	// https://binance-docs.github.io/apidocs/futures/en/#kline-candlestick-data
-	asset := getAssetData("BTCUSDT", os.Getenv("INTERVAL"), 600)
+	// Get kines data for an asset and calculate EMAs.
+	asset := getAssetData("BTCUSDT", order_interval, 600)
 
+	// Calculate new order.
 	newOrder := calculateOrder("BTCUSDT", asset, account)
 
-	// Cancel open orders, if any.
-	// https://binance-docs.github.io/apidocs/futures/en/#cancel-all-open-orders-trade
-
 	// Open a new order based on calculations.
-	// https://binance-docs.github.io/apidocs/futures/en/#new-order-trade
 	openOrder(newOrder, false)
 }
 
@@ -278,23 +284,27 @@ func getAssetData(symbol string, interval string, limit int) map[string]float64 
 		}
 		closePrice = append(closePrice, price)
 	}
-
+	// Calculate a fix number of EMAs and one more which was chosen in the env file.
+	ema20 := indicator.Ema(20, closePrice)
 	ema50 := indicator.Ema(50, closePrice)
-	ema60 := indicator.Ema(60, closePrice)
 	ema100 := indicator.Ema(100, closePrice)
-	ema200 := indicator.Ema(200, closePrice)
+	order_ema, err := strconv.Atoi(strings.TrimPrefix(order_mode, "ema"))
+	if err != nil {
+		log.Fatalf("[getAssetData] Can't parse EMA value.")
+	}
+	emaX := indicator.Ema(order_ema, closePrice)
 	asset := map[string]float64{
 		"currentPrice": closePrice[len(closePrice)-1],
+		"ema20":        ema20[len(ema20)-1],
 		"ema50":        ema50[len(ema50)-1],
-		"ema60":        ema60[len(ema60)-1],
 		"ema100":       ema100[len(ema100)-1],
-		"ema200":       ema200[len(ema200)-1],
+		order_mode:     emaX[len(emaX)-1],
 	}
 	log.Printf("[getAssetData] Current price: %0.2f", asset["currentPrice"])
+	log.Printf("[getAssetData] EMA20: %0.2f ", asset["ema20"])
 	log.Printf("[getAssetData] EMA50: %0.2f", asset["ema50"])
-	log.Printf("[getAssetData] EMA60: %0.2f", asset["ema60"])
 	log.Printf("[getAssetData] EMA100: %0.2f", asset["ema100"])
-	log.Printf("[getAssetData] EMA200: %0.2f", asset["ema200"])
+	log.Printf("[getAssetData] %s: %0.2f", strings.ToUpper(order_mode), asset[order_mode])
 
 	return asset
 }
@@ -316,26 +326,22 @@ func calculateOrder(symbol string, asset map[string]float64, account AccountData
 		Calculate where to open orders.
 
 		Options:
-		1. EMA50 > EMA100 > EMA200 and currentPrice > EMA chosen - long
-		2. EMA200 > EMA100 > EMA50 and currentPrice < EMA chosen - short
-		3. Others: not covered.
+		1. EMA20 > EMA50 > EMA100 and currentPrice > EMA chosen - long
+		2. EMA100 > EMA50 > EMA20 and currentPrice < EMA chosen - short
 	*/
-
-	// Condition for placing a long.
-	mode := os.Getenv("MODE")
 
 	// Common for both long and short.
 	newOrder.PositionSide = "BOTH"
 	newOrder.Type = "LIMIT"
 	newOrder.TimeInforce = "GTC"
-	if asset["currentPrice"] > asset[mode] && asset["ema50"] > asset["ema60"] && asset["ema60"] > asset["ema100"] && asset["ema100"] > asset["ema200"] {
+	if asset["currentPrice"] > asset[order_mode] && asset["ema20"] > asset["ema50"] && asset["ema50"] > asset["ema100"] {
 		log.Printf("[calculateOrder] Condition for placing a long was met.")
-		newOrder.Price = asset[mode]
+		newOrder.Price = asset[order_mode]
 		// Set the vars for a long here.
 		newOrder.Side = "BUY"
-	} else if asset["currentPrice"] < asset[mode] && asset["ema50"] < asset["ema60"] && asset["ema60"] < asset["ema100"] && asset["ema100"] < asset["ema200"] {
+	} else if asset["currentPrice"] < asset[order_mode] && asset["ema20"] < asset["ema50"] && asset["ema50"] < asset["ema100"] {
 		log.Printf("[calculateOrder] Condition for placing a short was met.")
-		newOrder.Price = asset[mode]
+		newOrder.Price = asset[order_mode]
 		// Set the vars for a short here.
 		newOrder.Side = "SELL"
 	} else {
