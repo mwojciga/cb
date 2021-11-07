@@ -135,23 +135,19 @@ func main() {
 	order_qty = os.Getenv("QTY")
 	log.Printf("[main] Conf: mode %s, interval %s, sl %s, tp %s, qty: %s", order_mode, order_interval, order_sl, order_tp, order_qty)
 
+	// Get data about the account and any opened positions.
 	account := getAccountData()
 
 	// Check if there are any open positions. Continue if not.
-	// https://binance-docs.github.io/apidocs/futures/en/#position-information-v2-user_data
 	checkOpenPositions("BTCUSDT", account)
 
-	// Get kines data for an asset and calculate EMAs: EMA50H, EMA100H, EMA200H.
-	// https://binance-docs.github.io/apidocs/futures/en/#kline-candlestick-data
-	asset := getAssetData("BTCUSDT", os.Getenv("INTERVAL"), 600)
+	// Get kines data for an asset and calculate EMAs.
+	asset := getAssetData("BTCUSDT", order_interval, 600)
 
+	// Calculate new order.
 	newOrder := calculateOrder("BTCUSDT", asset, account)
 
-	// Cancel open orders, if any.
-	// https://binance-docs.github.io/apidocs/futures/en/#cancel-all-open-orders-trade
-
 	// Open a new order based on calculations.
-	// https://binance-docs.github.io/apidocs/futures/en/#new-order-trade
 	openOrder(newOrder, false)
 }
 
@@ -302,13 +298,13 @@ func getAssetData(symbol string, interval string, limit int) map[string]float64 
 		"ema20":        ema20[len(ema20)-1],
 		"ema50":        ema50[len(ema50)-1],
 		"ema100":       ema100[len(ema100)-1],
-		"emaX":         emaX[len(emaX)-1],
+		order_mode:     emaX[len(emaX)-1],
 	}
 	log.Printf("[getAssetData] Current price: %0.2f", asset["currentPrice"])
-	log.Printf("[getAssetData] EMA50: %0.2f, ", asset["ema50"])
-	log.Printf("[getAssetData] EMA60: %0.2f", asset["ema60"])
+	log.Printf("[getAssetData] EMA20: %0.2f ", asset["ema20"])
+	log.Printf("[getAssetData] EMA50: %0.2f", asset["ema50"])
 	log.Printf("[getAssetData] EMA100: %0.2f", asset["ema100"])
-	log.Printf("[getAssetData] %s: %0.2f", strings.ToUpper(order_mode), asset["emaX"])
+	log.Printf("[getAssetData] %s: %0.2f", strings.ToUpper(order_mode), asset[order_mode])
 
 	return asset
 }
@@ -332,7 +328,6 @@ func calculateOrder(symbol string, asset map[string]float64, account AccountData
 		Options:
 		1. EMA20 > EMA50 > EMA100 and currentPrice > EMA chosen - long
 		2. EMA100 > EMA50 > EMA20 and currentPrice < EMA chosen - short
-		3. Others: not covered.
 	*/
 
 	// Common for both long and short.
