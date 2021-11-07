@@ -292,8 +292,11 @@ func getAssetData(symbol string, interval string, limit int) map[string]float64 
 	ema20 := indicator.Ema(20, closePrice)
 	ema50 := indicator.Ema(50, closePrice)
 	ema100 := indicator.Ema(100, closePrice)
-
-	emaX := indicator.Ema(100, closePrice)
+	order_ema, err := strconv.Atoi(strings.TrimPrefix(order_mode, "ema"))
+	if err != nil {
+		log.Fatalf("[getAssetData] Can't parse EMA value.")
+	}
+	emaX := indicator.Ema(order_ema, closePrice)
 	asset := map[string]float64{
 		"currentPrice": closePrice[len(closePrice)-1],
 		"ema20":        ema20[len(ema20)-1],
@@ -332,21 +335,18 @@ func calculateOrder(symbol string, asset map[string]float64, account AccountData
 		3. Others: not covered.
 	*/
 
-	// Condition for placing a long.
-	mode := os.Getenv("MODE")
-
 	// Common for both long and short.
 	newOrder.PositionSide = "BOTH"
 	newOrder.Type = "LIMIT"
 	newOrder.TimeInforce = "GTC"
-	if asset["currentPrice"] > asset[mode] && asset["ema20"] > asset["ema50"] && asset["ema50"] > asset["ema100"] {
+	if asset["currentPrice"] > asset[order_mode] && asset["ema20"] > asset["ema50"] && asset["ema50"] > asset["ema100"] {
 		log.Printf("[calculateOrder] Condition for placing a long was met.")
-		newOrder.Price = asset[mode]
+		newOrder.Price = asset[order_mode]
 		// Set the vars for a long here.
 		newOrder.Side = "BUY"
-	} else if asset["currentPrice"] < asset[mode] && asset["ema20"] < asset["ema50"] && asset["ema50"] < asset["ema100"] {
+	} else if asset["currentPrice"] < asset[order_mode] && asset["ema20"] < asset["ema50"] && asset["ema50"] < asset["ema100"] {
 		log.Printf("[calculateOrder] Condition for placing a short was met.")
-		newOrder.Price = asset[mode]
+		newOrder.Price = asset[order_mode]
 		// Set the vars for a short here.
 		newOrder.Side = "SELL"
 	} else {
