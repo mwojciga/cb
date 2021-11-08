@@ -135,20 +135,14 @@ func main() {
 	order_qty = os.Getenv("QTY")
 	log.Printf("[main] Conf: mode %s, interval %s, sl %s, tp %s, qty: %s", order_mode, order_interval, order_sl, order_tp, order_qty)
 
+	symbols := []string{"BTCUSDT", "ETHUSDT", "LTCUSDT"}
+
 	// Get data about the account and any opened positions.
 	account := getAccountData()
 
 	// Check if there are any open positions. Continue if not.
-	checkOpenPositions("BTCUSDT", account)
+	checkOpenPositions(symbols, account)
 
-	// Get kines data for an asset and calculate EMAs.
-	asset := getAssetData("BTCUSDT", order_interval, 600)
-
-	// Calculate new order.
-	newOrder := calculateOrder("BTCUSDT", asset, account)
-
-	// Open a new order based on calculations.
-	openOrder(newOrder, false)
 }
 
 func getAccountData() AccountData {
@@ -184,80 +178,89 @@ func getOpenOrders(symbol string) []OrderData {
 	return order
 }
 
-func checkOpenPositions(symbol string, account AccountData) {
-	for _, position := range account.Positions {
-		if position.Symbol == symbol {
-			positionAmt, err := strconv.ParseFloat(position.PositionAmt, 32)
-			if err != nil {
-				log.Fatalf("[checkOpenPositions] Can't parse position size.")
-			}
-			if positionAmt != 0 {
-				log.Printf("[checkOpenPositions] There are already opened positions for %s asset.", symbol)
-				// Check if TP/SL are placed.
-				orders := getOpenOrders(symbol)
-				if len(orders) != 0 {
-					for _, order := range orders {
-						log.Printf("[checkOpenPositions] Orders: %s", order.ClientOrderID)
+func checkOpenPositions(symbols []string, account AccountData) {
+	for _, symbol := range symbols {
+		for _, position := range account.Positions {
+			if position.Symbol == symbol {
+				log.Printf("[checkOpenPositions] Asset: %s", symbol)
+				positionAmt, err := strconv.ParseFloat(position.PositionAmt, 32)
+				if err != nil {
+					log.Fatalf("[checkOpenPositions] Can't parse position size.")
+				}
+				if positionAmt != 0 {
+					log.Printf("[checkOpenPositions] There are already opened positions for %s asset.", symbol)
+					// Check if TP/SL are placed.
+					orders := getOpenOrders(symbol)
+					if len(orders) != 0 {
+						for _, order := range orders {
+							log.Printf("[checkOpenPositions] Orders: %s", order.ClientOrderID)
+						}
+					} else {
+						// Place TP and SL orders (STOP_MARKET, TAKE_PROFIT_MARKET)
+						log.Printf("[checkOpenPositions] No SL/TP found.")
+						entryPrice, err := strconv.ParseFloat(position.EntryPrice, 32)
+						log.Printf("[checkOpenPositions] Amt %f, entry %f", positionAmt, entryPrice)
+						if err != nil {
+							log.Fatalf("[checkOpenPositions] Can't parse EntryPrice.")
+						}
+						var newOrder NewOrderData
+						// Check if position is a long or short.
+						// LONG: SELL, SHORT: BUY
+						if positionAmt < 0 {
+							newOrder.Side = "BUY"
+						} else if positionAmt > 0 {
+							newOrder.Side = "SELL"
+						}
+						// Common values for TP and SL.
+						newOrder.PositionSide = "BOTH"
+						newOrder.TimeInforce = "GTC"
+						newOrder.Symbol = symbol
+						newOrder.ClosePosition = "true"
+
+						// SL
+						sl, err := strconv.ParseFloat(os.Getenv("SL"), 32)
+						if err != nil {
+							log.Fatalf("[checkOpenPositions] Can't parse SL size.")
+						}
+						if positionAmt < 0 {
+							newOrder.StopPrice = (1 + sl) * entryPrice
+						} else if positionAmt > 0 {
+							newOrder.StopPrice = (1 - sl) * entryPrice
+						}
+						newOrder.Type = "STOP_MARKET"
+						log.Printf("[checkOpenPositions] Opening a SL at %0.2f", newOrder.StopPrice)
+						openOrder(newOrder, true)
+						// TP
+						tp, err := strconv.ParseFloat(os.Getenv("TP"), 32)
+						if err != nil {
+							log.Fatalf("[checkOpenPositions] Can't parse TP size.")
+						}
+						if positionAmt < 0 {
+							newOrder.StopPrice = (1 - tp) * entryPrice
+						} else if positionAmt > 0 {
+							newOrder.StopPrice = (1 + tp) * entryPrice
+						}
+						newOrder.Type = "TAKE_PROFIT_MARKET"
+						log.Printf("[checkOpenPositions] Opening a TP at %0.2f", newOrder.StopPrice)
+						openOrder(newOrder, true)
 					}
 				} else {
-					// Place TP and SL orders (STOP_MARKET, TAKE_PROFIT_MARKET)
-					log.Printf("[checkOpenPositions] No SL/TP found.")
-					entryPrice, err := strconv.ParseFloat(position.EntryPrice, 32)
-					log.Printf("[checkOpenPositions] Amt %f, entry %f", positionAmt, entryPrice)
-					if err != nil {
-						log.Fatalf("[checkOpenPositions] Can't parse EntryPrice.")
-					}
-					var newOrder NewOrderData
-					// Check if position is a long or short.
-					// LONG: SELL, SHORT: BUY
-					if positionAmt < 0 {
-						newOrder.Side = "BUY"
-					} else if positionAmt > 0 {
-						newOrder.Side = "SELL"
-					}
-					// Common values for TP and SL.
-					//newOrder.Quantity = math.Abs(positionAmt)
-					newOrder.PositionSide = "BOTH"
-					newOrder.TimeInforce = "GTC"
-					newOrder.Symbol = symbol
-					newOrder.ClosePosition = "true"
+					// Get kines data for an asset and calculate EMAs.
+					asset := getAssetData(symbol, order_interval, 600)
 
-					// SL
-					sl, err := strconv.ParseFloat(os.Getenv("SL"), 32)
-					if err != nil {
-						log.Fatalf("[checkOpenPositions] Can't parse SL size.")
-					}
-					if positionAmt < 0 {
-						newOrder.StopPrice = (1 + sl) * entryPrice
-					} else if positionAmt > 0 {
-						newOrder.StopPrice = (1 - sl) * entryPrice
-					}
-					newOrder.Type = "STOP_MARKET"
-					log.Printf("[checkOpenPositions] Opening a SL at %0.2f", newOrder.StopPrice)
-					openOrder(newOrder, true)
-					// TP
-					tp, err := strconv.ParseFloat(os.Getenv("TP"), 32)
-					if err != nil {
-						log.Fatalf("[checkOpenPositions] Can't parse TP size.")
-					}
-					if positionAmt < 0 {
-						newOrder.StopPrice = (1 - tp) * entryPrice
-					} else if positionAmt > 0 {
-						newOrder.StopPrice = (1 + tp) * entryPrice
-					}
-					newOrder.Type = "TAKE_PROFIT_MARKET"
-					log.Printf("[checkOpenPositions] Opening a TP at %0.2f", newOrder.StopPrice)
-					openOrder(newOrder, true)
+					// Calculate new order.
+					newOrder := calculateOrder(symbol, asset, account)
+
+					// Cancel any opened orders.
+					cancelOrders(symbol)
+
+					// Open a new order based on calculations.
+					openOrder(newOrder, false)
 				}
-				os.Exit(1)
+				break
 			}
-			break
 		}
-		// TODO: If BTCUSDT is not found, it will continue anyways :(
 	}
-	log.Printf("[checkOpenPositions] There are no opened positions for %s asset. Continuing.", symbol)
-	// Cancel any opened orders.
-	cancelOrders("BTCUSDT")
 }
 
 func getAssetData(symbol string, interval string, limit int) map[string]float64 {

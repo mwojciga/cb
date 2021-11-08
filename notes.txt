@@ -1,0 +1,2 @@
+# Crontab.
+* * * * * cd /home/mwojciga/github.com/cb && /usr/local/go/bin/go run . >> /home/mwojciga/github.com/cb/cb.log 2>&1
