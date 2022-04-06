@@ -136,7 +136,8 @@ func main() {
 	order_qty = os.Getenv("QTY")
 	log.Printf("[main] Conf: mode %s, interval %s, sl %s, tp %s, qty: %s", order_mode, order_interval, order_sl, order_tp, order_qty)
 
-	symbols := []string{"BTCUSDT", "ETHUSDT", "LTCUSDT", "XLMUSDT", "DOGEUSDT"}
+	//symbols := []string{"BTCUSDT", "ETHUSDT", "LTCUSDT", "XLMUSDT", "DOGEUSDT"}
+	symbols := []string{"ETHUSDT"}
 
 	// Get data about the account and any opened positions.
 	account := getAccountData()
@@ -332,6 +333,7 @@ func calculateOrder(symbol string, asset map[string]float64, account AccountData
 		Options:
 		1. EMA20 > EMA50 > EMA100 and currentPrice > EMA chosen - long
 		2. EMA100 > EMA50 > EMA20 and currentPrice < EMA chosen - short
+		if during a sltp the price is already higher/lower, then close the position.
 	*/
 
 	// Common for both long and short.
